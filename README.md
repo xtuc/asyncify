@@ -46,10 +46,17 @@ wasm-opt --asyncify [-O] [--pass-arg=asyncify-imports@module1.func1,...] in.wasm
 
 ### JavaScript side
 
+Install:
+```sh
+yarn add --dev @xtuc/asyncify-wasm
+# or
+npm install -D @xtuc/asyncify-wasm
+```
+
 First, import asyncify via:
 
 ```javascript
-import * as Asyncify from 'https://unpkg.com/asyncify-wasm?module';
+import * as Asyncify from '@xtuc/asyncify-wasm';
 ```
 
 Compilation / instantiation APIs are designed to be drop-in replacements for those of regular `WebAssembly` interface, but with `async` support.
