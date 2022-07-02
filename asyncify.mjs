@@ -14,18 +14,6 @@
  * limitations under the License.
  */
 
-// Put `__asyncify_data` somewhere at the start.
-// This address is pretty hand-wavy and we might want to make it configurable in future.
-// See https://github.com/WebAssembly/binaryen/blob/6371cf63687c3f638b599e086ca668c04a26cbbb/src/passes/Asyncify.cpp#L106-L113
-// for structure details.
-const DATA_ADDR = 16;
-// Place actual data right after the descriptor (which is 2 * sizeof(i32) = 8 bytes).
-const DATA_START = DATA_ADDR + 8;
-// End data at 1024 bytes. This is where the unused area by Clang ends and real stack / data begins.
-// Because this might differ between languages and parameters passed to wasm-ld, ideally we would
-// use `__stack_pointer` here, but, sadly, it's not exposed via exports yet.
-const DATA_END = 1024;
-
 const WRAPPED_EXPORTS = new WeakMap();
 
 const State = {
@@ -52,6 +40,9 @@ class Asyncify {
   constructor() {
     this.value = undefined;
     this.exports = null;
+    this.dataAddr = 0;
+    this.dataStart = 0;
+    this.dataEnd = 0;
   }
 
   getState() {
@@ -67,6 +58,14 @@ class Asyncify {
 
   wrapImportFn(fn) {
     return (...args) => {
+      if (this.exports === null) {
+        console.warn(
+            "Host functions called during Wasm initialization aren't supported by"
+            + " Asyncify because Wasm exports are not yet available."
+            + " Function " + fn.name + " is ignored."
+        );
+        return null;
+      }
       if (this.getState() === State.Rewinding) {
         this.exports.asyncify_stop_rewind();
         return this.value;
@@ -76,7 +75,7 @@ class Asyncify {
       if (!isPromise(value)) {
         return value;
       }
-      this.exports.asyncify_start_unwind(DATA_ADDR);
+      this.exports.asyncify_start_unwind(this.dataAddr);
       this.value = value;
     };
   }
@@ -114,7 +113,8 @@ class Asyncify {
         this.exports.asyncify_stop_unwind();
         this.value = await this.value;
         this.assertNoneState();
-        this.exports.asyncify_start_rewind(DATA_ADDR);
+
+        this.exports.asyncify_start_rewind(this.dataAddr);
         result = fn();
       }
 
@@ -152,7 +152,13 @@ class Asyncify {
 
     const memory = exports.memory || (imports.env && imports.env.memory);
 
-    new Int32Array(memory.buffer, DATA_ADDR).set([DATA_START, DATA_END]);
+    this.dataAddr = exports.get_asyncify_stack_space_ptr();
+    // Place actual data right after the descriptor (which is 2 * sizeof(i32) = 8 bytes).
+    this.dataStart = exports.get_asyncify_stack_space_ptr() + 8;
+    this.dataEnd = exports.get_asyncify_stack_space_ptr()
+                 + exports.get_asyncify_stack_space_size();
+
+    new Int32Array(memory.buffer, this.dataAddr).set([this.dataStart, this.dataEnd]);
 
     this.exports = this.wrapExports(exports);
 
